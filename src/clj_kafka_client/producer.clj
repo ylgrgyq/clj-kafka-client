@@ -1,10 +1,11 @@
 (ns clj-kafka-client.producer
   (:import (org.apache.kafka.clients.producer ProducerRecord KafkaProducer RecordMetadata)
-           (java.util.concurrent Future)
+           (java.util.concurrent Future TimeUnit)
            (org.apache.kafka.common.serialization Serializer StringSerializer
                                                   ByteArraySerializer LongSerializer
                                                   IntegerSerializer)
-           (java.util Map)))
+           (java.util Map)
+           (org.apache.kafka.common PartitionInfo Node)))
 
 (defn string-serializer [] (StringSerializer.))
 (defn long-serializer [] (LongSerializer.))
@@ -40,3 +41,29 @@
        (isCancelled [_] (.isCancelled fu))
        (isDone [_] (.isDone fu))
        (cancel [_ interrupt?] (.cancel fu interrupt?))))))
+
+(defn flush [^KafkaProducer producer]
+  (.flush producer))
+
+(defn- node->map [^Node node]
+  {:id (.id node)
+   :id-string (.idString node)
+   :host (.host node)
+   :port (.port node)})
+
+(defn- partition-info->map [^PartitionInfo info]
+  {:topic            (.topic info)
+   :partition        (.partition info)
+   :leader           (node->map (.leader info))
+   :replicas         (mapv #(node->map %) (.replicas info))
+   :in-sync-replicas (mapv #(node->map %) (.inSyncReplicas info))})
+
+(defn partitions-for [^KafkaProducer producer ^String topic]
+  (->> (.partitionsFor producer topic)
+       (mapv #(partition-info->map %))))
+
+(defn close
+  ([^KafkaProducer producer]
+   (.close producer Long/MAX_VALUE TimeUnit/MILLISECONDS))
+  ([^KafkaProducer producer timeout time-unit]
+   (.close producer timeout time-unit)))

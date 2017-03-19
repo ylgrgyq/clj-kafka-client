@@ -1,6 +1,7 @@
 (ns clj-kafka-client.producer
+  (:refer-clojure :exclude [flush])
   (:import (org.apache.kafka.clients.producer ProducerRecord KafkaProducer RecordMetadata)
-           (java.util.concurrent Future TimeUnit)
+           (java.util.concurrent Future TimeUnit TimeoutException)
            (org.apache.kafka.common.serialization Serializer StringSerializer
                                                   ByteArraySerializer LongSerializer
                                                   IntegerSerializer)
@@ -35,12 +36,23 @@
    (send-record producer record nil))
   ([^KafkaProducer producer ^ProducerRecord record call-back]
    (let [^Future fu (.send producer record call-back)]
-     (reify Future
+     (reify
+       Future
        (get [_] (-> (.get fu) (record-meta->map)))
        (get [_ timeout unit] (-> (.get fu timeout unit) (record-meta->map)))
        (isCancelled [_] (.isCancelled fu))
        (isDone [_] (.isDone fu))
-       (cancel [_ interrupt?] (.cancel fu interrupt?))))))
+       (cancel [_ interrupt?] (.cancel fu interrupt?))
+       clojure.lang.IDeref
+       (deref [_] (-> (.get fu) (record-meta->map)))
+       clojure.lang.IBlockingDeref
+       (deref [_ timeout-ms timeout-val]
+         (try
+           (-> (.get fu timeout-ms TimeUnit/MILLISECONDS) (record-meta->map))
+           (catch TimeoutException ex
+             timeout-val)))
+       clojure.lang.IPending
+       (isRealized [this] (.isDone fu))))))
 
 (defn flush [^KafkaProducer producer]
   (.flush producer))

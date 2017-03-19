@@ -13,8 +13,12 @@ Development is against the 0.9.0 or newer release of Kafka.
 
 (def kafka-producer (producer {"bootstrap.servers" "localhost:9092"}))
 
-(send-record kafka-producer (record "My-Topic" {:msg "Hello world"}))
+(let [r (record "My-Topic" "Hello world")  ; Build a record to send
+      p (send-record kafka-producer r)]    ; Send the record to Kafka server and get a promise for this record
+  @p)                                      ; Deref the promise to get the metadata when the record was acknowledged by server
 ```
+
+The returned value of `send-record` implements the `java.util.concurrent.Future` interface. So if you like you can use it as a `Future` object instead of a promise in clojure.
 
 ### Consumer
 

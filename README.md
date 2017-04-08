@@ -1,5 +1,7 @@
 # clj-kafka-client
 
+[![Clojars Project](https://img.shields.io/clojars/v/clj-kafka-client.svg)](https://clojars.org/clj-kafka-client)
+
 A Clojure library for [Kafka](https://kafka.apache.org/) new client API.
 
 Development is against the 0.9.0 or newer release of Kafka.

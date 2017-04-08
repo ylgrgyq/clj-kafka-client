@@ -1,4 +1,4 @@
-(defproject clj-kafka-client "0.1.0-SNAPSHOT"
+(defproject clj-kafka-client "0.2.0-SNAPSHOT"
   :description "A clojure API wrapper for Kafka new client"
   :url "http://github.com/ylgrgyq/clj-kafka-client"
   :license {:name "Eclipse Public License"

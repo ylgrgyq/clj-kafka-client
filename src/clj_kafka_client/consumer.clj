@@ -1,4 +1,5 @@
 (ns clj-kafka-client.consumer
+  (:use [clj-kafka-client.impl :only (->map)])
   (:require [clojure.tools.logging :as log]
             [clojure.data.json :as json])
   (:import (org.apache.kafka.clients.consumer KafkaConsumer OffsetAndMetadata
@@ -9,8 +10,9 @@
            (org.apache.kafka.common.serialization StringDeserializer Deserializer
                                                   ByteArrayDeserializer IntegerDeserializer
                                                   LongDeserializer)
-           (java.util Map LinkedList Collections)
-           (org.apache.kafka.common.errors WakeupException)))
+           (java.util Map LinkedList Collections List)
+           (org.apache.kafka.common.errors WakeupException)
+           (org.apache.kafka.clients.consumer.internals NoOpConsumerRebalanceListener)))
 
 (defn string-deserializer [] (StringDeserializer.))
 (defn long-deserializer [] (LongDeserializer.))
@@ -25,16 +27,27 @@
    (KafkaConsumer. ^Map configs key-deserializer value-deserializer)))
 
 (defn assignment [^KafkaConsumer consumer]
-  (into #{} (.assignment consumer)))
+  (mapv ->map (.assignment consumer)))
 
 (defn subscription [^KafkaConsumer consumer]
-  (into #{} (.subscription consumer)))
+  (.subscription consumer))
 
 (defn assign [^KafkaConsumer consumer partitions]
   (.assign consumer partitions))
 
+(defn subscribe
+  ([^KafkaConsumer consumer topics]
+    (subscribe consumer topics nil))
+  ([^KafkaConsumer consumer topics listener]
+   (let [^List topics (if (string? topics) [topics] topics)
+         ^ConsumerRebalanceListener listener (or listener (NoOpConsumerRebalanceListener.))]
+     (.subscribe consumer topics listener))))
+
 (defn unsubscribe [^KafkaConsumer consumer]
   (.unsubscribe consumer))
+
+(defn poll [^KafkaConsumer consumer timeout]
+  (map ->map (.poll consumer timeout)))
 
 (defn seek-to-beginning [^KafkaConsumer consumer topic-partitinos]
   (.seekToBeginning consumer
@@ -177,7 +190,7 @@
       (catch InterruptedException _))
     (.shutdownNow worker-pool)))
 
-(defn start-consuming-queue [consumer-configs queue-name msg-handler-fn & opts]
+(defn create-high-level-consumer [consumer-configs queue-name msg-handler-fn & opts]
   (let [stopped?                     (atom false)
         default-factory              (Executors/defaultThreadFactory)
         {:keys [interval reliable start-consumer-from-largest msg-decoder
@@ -253,8 +266,8 @@
     {:consumer     consumer :future fu :paused? paused-partitions :stopped? stopped?
      :pending-msgs pending-msgs :partition->offset partition->offset}))
 
-(defn stop-consuming-queue [consuming-queue-structure]
-  (when-let [{:keys [consumer stopped? ^Future future]} consuming-queue-structure]
+(defn stop-high-level-consumer [high-level-consumer]
+  (when-let [{:keys [consumer stopped? ^Future future]} high-level-consumer]
     (reset! stopped? true)
     (wakeup consumer)
     (when (and future (not (.isDone future)))

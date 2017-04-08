@@ -1,5 +1,6 @@
 (ns clj-kafka-client.producer
   (:refer-clojure :exclude [flush])
+  (:use [clj-kafka-client.impl :only (->map)])
   (:import (org.apache.kafka.clients.producer ProducerRecord KafkaProducer RecordMetadata)
            (java.util.concurrent Future TimeUnit TimeoutException)
            (org.apache.kafka.common.serialization Serializer StringSerializer
@@ -57,22 +58,9 @@
 (defn flush [^KafkaProducer producer]
   (.flush producer))
 
-(defn- node->map [^Node node]
-  {:id (.id node)
-   :id-string (.idString node)
-   :host (.host node)
-   :port (.port node)})
-
-(defn- partition-info->map [^PartitionInfo info]
-  {:topic            (.topic info)
-   :partition        (.partition info)
-   :leader           (node->map (.leader info))
-   :replicas         (mapv #(node->map %) (.replicas info))
-   :in-sync-replicas (mapv #(node->map %) (.inSyncReplicas info))})
-
 (defn partitions-for [^KafkaProducer producer ^String topic]
   (->> (.partitionsFor producer topic)
-       (mapv #(partition-info->map %))))
+       (mapv #(->map %))))
 
 (defn close
   ([^KafkaProducer producer]

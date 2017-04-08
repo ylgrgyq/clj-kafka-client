@@ -28,10 +28,6 @@
   ([topic partition key value]
    (ProducerRecord. topic partition key value)))
 
-(defn- record-meta->map [^RecordMetadata meta]
-  (when meta
-    {:topic (.topic meta) :partition (.partition meta) :offset (.offset meta)}))
-
 (defn ^Future send-record
   ([^KafkaProducer producer ^ProducerRecord record]
    (send-record producer record nil))
@@ -39,17 +35,17 @@
    (let [^Future fu (.send producer record call-back)]
      (reify
        Future
-       (get [_] (-> (.get fu) (record-meta->map)))
-       (get [_ timeout unit] (-> (.get fu timeout unit) (record-meta->map)))
+       (get [_] (-> (.get fu) (->map)))
+       (get [_ timeout unit] (-> (.get fu timeout unit) (->map)))
        (isCancelled [_] (.isCancelled fu))
        (isDone [_] (.isDone fu))
        (cancel [_ interrupt?] (.cancel fu interrupt?))
        clojure.lang.IDeref
-       (deref [_] (-> (.get fu) (record-meta->map)))
+       (deref [_] (-> (.get fu) (->map)))
        clojure.lang.IBlockingDeref
        (deref [_ timeout-ms timeout-val]
          (try
-           (-> (.get fu timeout-ms TimeUnit/MILLISECONDS) (record-meta->map))
+           (-> (.get fu timeout-ms TimeUnit/MILLISECONDS) (->map))
            (catch TimeoutException ex
              timeout-val)))
        clojure.lang.IPending

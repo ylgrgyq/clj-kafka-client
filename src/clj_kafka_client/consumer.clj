@@ -86,15 +86,6 @@
                                           snapshot))))
                              (log/warn ex "Async commit offset failed" queue-name commitable-offsets parmap))))))))))
 
-(defn- decode-msg [queue-name msg-decoder msg]
-  (when msg
-    (try
-      (if msg-decoder
-        (msg-decoder msg)
-        msg)
-      (catch Exception ex
-        (log/error ex "Decode msg failed" queue-name msg)))))
-
 (def ^:private consumer-counter (atom -1))
 
 (defn- create-worker-pool [topic pool-size task-queue-size]
@@ -190,10 +181,10 @@
       (catch InterruptedException _))
     (.shutdownNow worker-pool)))
 
-(defn create-high-level-consumer [consumer-configs queue-name msg-handler-fn & opts]
+(defn create-high-level-consumer [consumer-configs topic msg-handler-fn & opts]
   (let [stopped?                     (atom false)
         default-factory              (Executors/defaultThreadFactory)
-        {:keys [interval reliable start-consumer-from-largest msg-decoder
+        {:keys [interval reliable start-consumer-from-largest
                 key-deserializer value-deserializer worker-pool-size worker-pool-task-queue-size
                 worker-pool-graceful-shutdown-timeout-ms]
          :or   {worker-pool-size                         (.availableProcessors (Runtime/getRuntime))
@@ -205,7 +196,7 @@
                 value-deserializer                       (string-deserializer)}} opts
         auto-commit?                 (= (get consumer-configs "enable.auto.commit" "true") "true")
         paused-partitions            (atom nil)
-        ^ExecutorService worker-pool (create-worker-pool queue-name worker-pool-size worker-pool-task-queue-size)
+        ^ExecutorService worker-pool (create-worker-pool topic worker-pool-size worker-pool-task-queue-size)
         completion-service           (ExecutorCompletionService. worker-pool)
         consumer                     (consumer consumer-configs key-deserializer value-deserializer)
         partition->offset            (atom {})
@@ -218,55 +209,57 @@
         fu                           (future-call
                                        (fn []
                                          (.subscribe consumer
-                                                     (Collections/singletonList queue-name)
-                                                     (create-consumer-rebalance-listener consumer queue-name partition->offset auto-commit? paused-partitions))
+                                                     (Collections/singletonList topic)
+                                                     (create-consumer-rebalance-listener consumer topic partition->offset auto-commit? paused-partitions))
                                          (when start-consumer-from-largest
                                            (seek-to-beginning consumer []))
                                          (try
                                            (while (not @stopped?)
                                              (try
                                                (let [^ConsumerRecords records (.poll consumer interval)]
+                                                 (println "poll" (.count records))
                                                  (doseq [^ConsumerRecord record records]
                                                    (let [partition (.partition record)
                                                          offset    (.offset record)]
-                                                     (if-let [msg (not-empty (decode-msg queue-name msg-decoder (.value record)))]
+                                                     (println "consume" partition offset (.value record))
+                                                     (if-let [msg (.value record)]
                                                        (try
                                                          (if @paused-partitions
                                                            (.add pending-msgs [msg partition offset])
                                                            (msg-processor-fn msg partition offset))
                                                          (catch RejectedExecutionException _
                                                            (.add pending-msgs [msg partition offset])
-                                                           (->> (pause-subscribed-partitions consumer queue-name)
+                                                           (->> (pause-subscribed-partitions consumer topic)
                                                                 (reset! paused-partitions))))
                                                        (update-offset-progress partition->offset partition (inc offset))))))
                                                (when (process-pending-msgs consumer pending-msgs msg-processor-fn)
-                                                 (resume-partitions consumer queue-name)
+                                                 (resume-partitions consumer topic)
                                                  (reset! paused-partitions nil))
                                                (catch WakeupException _)
                                                (catch InterruptedException _)
                                                (catch Exception ex
-                                                 (log/errorf ex "%s queue got unexpected error" queue-name))
+                                                 (log/errorf ex "%s queue got unexpected error" topic))
                                                (finally
                                                  (try
                                                    (process-complete-msg completion-service partition->offset)
                                                    (when-not auto-commit?
-                                                     (commit-offset queue-name consumer partition->offset))
+                                                     (commit-offset topic consumer partition->offset))
                                                    (catch Exception ex
-                                                     (log/errorf ex "Commit offset for queue %s failed" queue-name))))))
+                                                     (log/errorf ex "Commit offset for queue %s failed" topic))))))
                                            (finally
                                              (try
                                                (shutdown-worker-pool worker-pool worker-pool-graceful-shutdown-timeout-ms)
                                                (process-complete-msg completion-service partition->offset)
                                                (when-not auto-commit?
                                                  ;; Try to commit offset again
-                                                 (commit-offset queue-name consumer partition->offset))
+                                                 (commit-offset topic consumer partition->offset))
                                                (close consumer)
                                                (catch Exception ex
-                                                 (log/errorf "Close consumer for queue %s failed" queue-name)))))))]
+                                                 (log/errorf "Close consumer for queue %s failed" topic)))))))]
     {:consumer     consumer :future fu :paused? paused-partitions :stopped? stopped?
      :pending-msgs pending-msgs :partition->offset partition->offset}))
 
-(defn stop-high-level-consumer [high-level-consumer]
+(defn close-high-level-consumer [high-level-consumer]
   (when-let [{:keys [consumer stopped? ^Future future]} high-level-consumer]
     (reset! stopped? true)
     (wakeup consumer)

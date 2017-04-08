@@ -1,6 +1,7 @@
 (ns clj-kafka-client.impl
   (:import (org.apache.kafka.common Node PartitionInfo TopicPartition)
-           (org.apache.kafka.clients.consumer ConsumerRecords ConsumerRecord)))
+           (org.apache.kafka.clients.consumer ConsumerRecords ConsumerRecord)
+           (org.apache.kafka.clients.producer RecordMetadata)))
 
 (defprotocol ToMap
   (->map [this]))
@@ -20,6 +21,10 @@
      :leader           (->map ^Node (.leader info))
      :replicas         (mapv #(->map %) (.replicas info))
      :in-sync-replicas (mapv #(->map %) (.inSyncReplicas info))})
+
+  RecordMetadata
+  (->map [meta]
+    {:topic (.topic meta) :partition (.partition meta) :offset (.offset meta)})
 
   TopicPartition
   (->map [tp]

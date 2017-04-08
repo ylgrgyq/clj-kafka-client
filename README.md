@@ -11,10 +11,10 @@ Development is against the 0.9.0 or newer release of Kafka.
 ```clojure
 (use 'clj-kafka-client.producer)
 
-(def kafka-producer (producer {"bootstrap.servers" "localhost:9092"}))
+(def producer (kafka-producer {"bootstrap.servers" "localhost:9092"}))
 
 (let [r (record "My-Topic" "Hello world")  ; Build a record to send
-      p (send-record kafka-producer r)]    ; Send the record to Kafka server and get a promise for this record
+      p (send-record producer r)]          ; Send the record to Kafka server and get a promise for this record
   @p)                                      ; Deref the promise to get the metadata when the record was acknowledged by server
 ```
 
@@ -26,13 +26,13 @@ You can use kafka consumer API directly with a shallow clojure wrapper like:
 ```clojure
 (use 'clj-kafka-client.consumer)
 
-(def kafka-consumer (consumer {"bootstrap.servers" "localhost:9092"
+(def consumer (kafka-consumer {"bootstrap.servers" "localhost:9092"
                                "group.id"          "My-Group"}))
 
-(subscribe kafka-consumer)
+(subscribe consumer)
 
 (loop []
-  (let [records (poll kafka-consumer)]
+  (let [records (poll consumer)]
     (doseq [record records]
       (println record))))
 ```
@@ -48,14 +48,14 @@ The high level API is as follows:
 (defn msg-handler [msg]
   (println msg))
 
-(def kafka-consumer (create-high-level-consumer {"bootstrap.servers" "localhost:9092"
-                                                 "group.id"          "My-Group"}
-                                                "My-Topic"
-                                                msg-handler
-                                                :worker-pool-size 10))
+(def consumer (create-high-level-consumer {"bootstrap.servers" "localhost:9092"
+                                           "group.id"          "My-Group"}
+                                           "My-Topic"
+                                           msg-handler
+                                           :worker-pool-size 10))
 
 ;; Close consumer
-(close-high-level-consumer kafka-consumer)
+(close-high-level-consumer consumer)
 ```
 
 ## License

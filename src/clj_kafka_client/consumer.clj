@@ -19,8 +19,8 @@
 (defn integer-deserializer [] (IntegerDeserializer.))
 (defn byte-array-deserializer [] (ByteArrayDeserializer.))
 
-(defn ^KafkaConsumer consumer
-  ([^Map configs] (consumer configs (string-deserializer) (string-deserializer)))
+(defn ^KafkaConsumer kafka-consumer
+  ([^Map configs] (kafka-consumer configs (string-deserializer) (string-deserializer)))
   ([^Map configs ^Deserializer key-deserializer ^Deserializer value-deserializer]
    {:pre [(contains? configs "bootstrap.servers")
           (contains? configs "group.id")]}
@@ -30,7 +30,7 @@
   (mapv ->map (.assignment consumer)))
 
 (defn subscription [^KafkaConsumer consumer]
-  (.subscription consumer))
+  (set (.subscription consumer)))
 
 (defn assign [^KafkaConsumer consumer partitions]
   (.assign consumer partitions))
@@ -138,7 +138,7 @@
                    true
                    (catch RejectedExecutionException _
                      false))
-          (.pop pending-msgs)
+          (.poll pending-msgs)
           (recur))))
     (.isEmpty pending-msgs)))
 
@@ -151,23 +151,24 @@
       ;; Try again
       (.resume consumer (into-array TopicPartition (.assignment consumer))))))
 
-(defn- ^ConsumerRebalanceListener create-consumer-rebalance-listener [consumer queue-name partition->offset auto-commit? paused-partitions]
+(defn ^ConsumerRebalanceListener create-consumer-rebalance-listener [consumer topic partition->offset auto-commit? paused-partitions]
   (reify ConsumerRebalanceListener
     (onPartitionsAssigned [_ partitions]
       (log/info "Partitions was assigned" (map #(vector (.topic ^TopicPartition %)
                                                         (.partition ^TopicPartition %))
                                                partitions))
-      (->> (pause-subscribed-partitions consumer queue-name)
-           (reset! paused-partitions)))
+      (when @paused-partitions
+        (->> (pause-subscribed-partitions consumer topic)
+             (reset! paused-partitions))))
     (onPartitionsRevoked [this partitions]
       (try
         (log/info "Partitions was revoked" (map #(vector (.topic ^TopicPartition %)
                                                          (.partition ^TopicPartition %))
                                                 partitions))
         (when-not auto-commit?
-          (commit-offset queue-name consumer partition->offset))
+          (commit-offset topic consumer partition->offset))
         (catch Exception ex
-          (log/warn ex "Commit offset failed" queue-name))))))
+          (log/warn ex "Commit offset failed" topic))))))
 
 (defn- shutdown-worker-pool [^ExecutorService worker-pool worker-pool-graceful-shutdown-timeout-ms]
   (when worker-pool
@@ -182,6 +183,8 @@
     (.shutdownNow worker-pool)))
 
 (defn create-high-level-consumer [consumer-configs topic msg-handler-fn & opts]
+  {:pre [(contains? consumer-configs "bootstrap.servers")
+         (contains? consumer-configs "group.id")]}
   (let [stopped?                     (atom false)
         default-factory              (Executors/defaultThreadFactory)
         {:keys [interval reliable start-consumer-from-largest
@@ -198,9 +201,9 @@
         paused-partitions            (atom nil)
         ^ExecutorService worker-pool (create-worker-pool topic worker-pool-size worker-pool-task-queue-size)
         completion-service           (ExecutorCompletionService. worker-pool)
-        consumer                     (consumer consumer-configs key-deserializer value-deserializer)
+        consumer                     (kafka-consumer consumer-configs key-deserializer value-deserializer)
         partition->offset            (atom {})
-        pending-msgs                 (ConcurrentLinkedQueue.)
+        pending-msgs                 (LinkedList.)
         msg-processor-fn             (fn [msg partition offset]
                                        (.submit completion-service
                                                 (fn []
@@ -217,11 +220,9 @@
                                            (while (not @stopped?)
                                              (try
                                                (let [^ConsumerRecords records (.poll consumer interval)]
-                                                 (println "poll" (.count records))
                                                  (doseq [^ConsumerRecord record records]
                                                    (let [partition (.partition record)
                                                          offset    (.offset record)]
-                                                     (println "consume" partition offset (.value record))
                                                      (if-let [msg (.value record)]
                                                        (try
                                                          (if @paused-partitions

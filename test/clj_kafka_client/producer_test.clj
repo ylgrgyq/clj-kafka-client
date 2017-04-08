@@ -5,9 +5,9 @@
 
 (deftest test-produce
   (let [dummy-topic "topic"
-        kafka-producer (producer {"bootstrap.servers" "localhost:9092"})
-        fu (send-record kafka-producer (record dummy-topic "Hello world"))]
+        producer (kafka-producer {"bootstrap.servers" "localhost:9092"})
+        fu (send-record producer (record dummy-topic "Hello world"))]
     (is (not-empty @fu))
     (is (= dummy-topic (:topic @fu)))
     (is (and (>= (:partition @fu) 0) (>= (:offset @fu) 0)))
-    (close kafka-producer)))
+    (close producer)))

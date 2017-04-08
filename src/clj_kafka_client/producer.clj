@@ -14,8 +14,8 @@
 (defn integer-serializer [] (IntegerSerializer.))
 (defn byte-array-serializer [] (ByteArraySerializer.))
 
-(defn producer
-  ([^Map configs] (producer configs (string-serializer) (string-serializer)))
+(defn kafka-producer
+  ([^Map configs] (kafka-producer configs (string-serializer) (string-serializer)))
   ([^Map configs ^Serializer key-serializer ^Serializer value-serializer]
    {:pre [(contains? configs "bootstrap.servers")]}
    (KafkaProducer. configs key-serializer value-serializer)))
